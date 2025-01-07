@@ -36,23 +36,43 @@ class MLKitPoseDetector(
         success: OnSuccessListener<Pose>,
         error: OnFailureListener
     ): Boolean {
-        if (task != null) return false
+        if (task != null) {
+            error.onFailure(IllegalStateException("Previous detection task is still in progress"))
+            return false
+        }
 
-        task = detector.process(image)
-            .addOnSuccessListener {
-                success.onSuccess(it)
-                task = null
-            }
-            .addOnFailureListener {
-                error.onFailure(it)
-                task = null
-            }
+        try {
+            task = detector.process(image)
+                .addOnSuccessListener { pose ->
+                    try {
+                        success.onSuccess(pose)
+                    } catch (e: Exception) {
+                        error.onFailure(e)
+                    } finally {
+                        task = null
+                    }
+                }
+                .addOnFailureListener { e ->
+                    error.onFailure(e)
+                    task = null
+                }
 
-        return true
+            return true
+        } catch (e: Exception) {
+            error.onFailure(e)
+            task = null
+            return false
+        }
     }
 
     fun close() {
-        detector.close()
-        task = null
+        try {
+            detector.close()
+        } catch (e: Exception) {
+            // Log but don't throw
+            e.printStackTrace()
+        } finally {
+            task = null
+        }
     }
 }

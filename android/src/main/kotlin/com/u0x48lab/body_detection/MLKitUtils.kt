@@ -5,57 +5,55 @@ import com.google.mlkit.vision.pose.PoseLandmark
 
 object MLKitUtils {
     fun poseLandmarksToMap(pose: Pose): Map<String, Any> {
-        val landmarks = mutableMapOf<String, Any>()
+        val landmarks = mutableListOf<Map<String, Any>>()
         
-        // Map MLKit landmark types to original types
-        val landmarkMappings = mapOf(
-            PoseLandmark.LEFT_ANKLE to "leftAnkle",
-            PoseLandmark.LEFT_EAR to "leftEar",
-            PoseLandmark.LEFT_ELBOW to "leftElbow",
-            PoseLandmark.LEFT_EYE to "leftEye",
-            PoseLandmark.LEFT_EYE_INNER to "leftEyeInner",
-            PoseLandmark.LEFT_EYE_OUTER to "leftEyeOuter",
-            PoseLandmark.LEFT_HEEL to "leftHeel",
-            PoseLandmark.LEFT_HIP to "leftHip",
-            PoseLandmark.LEFT_INDEX to "leftIndexFinger",
-            PoseLandmark.LEFT_KNEE to "leftKnee",
-            PoseLandmark.LEFT_PINKY to "leftPinkyFinger",
-            PoseLandmark.LEFT_SHOULDER to "leftShoulder",
-            PoseLandmark.LEFT_THUMB to "leftThumb",
-            PoseLandmark.LEFT_FOOT_INDEX to "leftToe",
-            PoseLandmark.LEFT_WRIST to "leftWrist",
-            PoseLandmark.LEFT_MOUTH to "mouthLeft",
-            PoseLandmark.RIGHT_MOUTH to "mouthRight",
-            PoseLandmark.NOSE to "nose",
-            PoseLandmark.RIGHT_ANKLE to "rightAnkle",
-            PoseLandmark.RIGHT_EAR to "rightEar",
-            PoseLandmark.RIGHT_ELBOW to "rightElbow",
-            PoseLandmark.RIGHT_EYE to "rightEye",
-            PoseLandmark.RIGHT_EYE_INNER to "rightEyeInner",
-            PoseLandmark.RIGHT_EYE_OUTER to "rightEyeOuter",
-            PoseLandmark.RIGHT_HEEL to "rightHeel",
-            PoseLandmark.RIGHT_HIP to "rightHip",
-            PoseLandmark.RIGHT_INDEX to "rightIndexFinger",
-            PoseLandmark.RIGHT_KNEE to "rightKnee",
-            PoseLandmark.RIGHT_PINKY to "rightPinkyFinger",
-            PoseLandmark.RIGHT_SHOULDER to "rightShoulder",
-            PoseLandmark.RIGHT_THUMB to "rightThumb",
-            PoseLandmark.RIGHT_FOOT_INDEX to "rightToe",
-            PoseLandmark.RIGHT_WRIST to "rightWrist"
-        )
-
         pose.allPoseLandmarks.forEach { landmark ->
-            val landmarkType = landmarkMappings[landmark.landmarkType] ?: return@forEach
-            landmarks[landmarkType] = mapOf(
-                "x" to landmark.position3D.x,
-                "y" to landmark.position3D.y,
-                "z" to landmark.position3D.z,
-                "likelihood" to landmark.inFrameLikelihood,
-                "type" to landmark.landmarkType
-            )
+            val landmarkType = when (landmark.landmarkType) {
+                PoseLandmark.NOSE -> "nose"
+                PoseLandmark.LEFT_EYE_INNER -> "leftEyeInner"
+                PoseLandmark.LEFT_EYE -> "leftEye"
+                PoseLandmark.LEFT_EYE_OUTER -> "leftEyeOuter"
+                PoseLandmark.RIGHT_EYE_INNER -> "rightEyeInner"
+                PoseLandmark.RIGHT_EYE -> "rightEye"
+                PoseLandmark.RIGHT_EYE_OUTER -> "rightEyeOuter"
+                PoseLandmark.LEFT_EAR -> "leftEar"
+                PoseLandmark.RIGHT_EAR -> "rightEar"
+                PoseLandmark.LEFT_MOUTH -> "mouthLeft"
+                PoseLandmark.RIGHT_MOUTH -> "mouthRight"
+                PoseLandmark.LEFT_SHOULDER -> "leftShoulder"
+                PoseLandmark.RIGHT_SHOULDER -> "rightShoulder"
+                PoseLandmark.LEFT_ELBOW -> "leftElbow"
+                PoseLandmark.RIGHT_ELBOW -> "rightElbow"
+                PoseLandmark.LEFT_WRIST -> "leftWrist"
+                PoseLandmark.RIGHT_WRIST -> "rightWrist"
+                PoseLandmark.LEFT_PINKY -> "leftPinkyFinger"
+                PoseLandmark.RIGHT_PINKY -> "rightPinkyFinger"
+                PoseLandmark.LEFT_INDEX -> "leftIndexFinger"
+                PoseLandmark.RIGHT_INDEX -> "rightIndexFinger"
+                PoseLandmark.LEFT_THUMB -> "leftThumb"
+                PoseLandmark.RIGHT_THUMB -> "rightThumb"
+                PoseLandmark.LEFT_HIP -> "leftHip"
+                PoseLandmark.RIGHT_HIP -> "rightHip"
+                PoseLandmark.LEFT_KNEE -> "leftKnee"
+                PoseLandmark.RIGHT_KNEE -> "rightKnee"
+                PoseLandmark.LEFT_ANKLE -> "leftAnkle"
+                PoseLandmark.RIGHT_ANKLE -> "rightAnkle"
+                PoseLandmark.LEFT_HEEL -> "leftHeel"
+                PoseLandmark.RIGHT_HEEL -> "rightHeel"
+                PoseLandmark.LEFT_FOOT_INDEX -> "leftToe"
+                PoseLandmark.RIGHT_FOOT_INDEX -> "rightToe"
+                else -> return@forEach
+            }
+
+            landmarks.add(mapOf(
+                "part" to landmarkType,
+                "x" to landmark.position.x,
+                "y" to landmark.position.y,
+                "visibility" to landmark.inFrameLikelihood
+            ))
         }
 
-        return landmarks
+        return mapOf("landmarks" to landmarks)
     }
 
     fun getPoseLandmarkPosition(landmark: PoseLandmark): Map<String, Any> {

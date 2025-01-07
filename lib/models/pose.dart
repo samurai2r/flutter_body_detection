@@ -7,10 +7,26 @@ class Pose {
   Pose({required this.landmarks});
 
   factory Pose.fromMap(Map<Object?, Object?> map) {
-    final landmarkObjectList = map['landmarks'] as List;
-    final landmarkList =
-        landmarkObjectList.map((it) => PoseLandmark.fromMap(it)).toList();
-    return Pose(landmarks: landmarkList);
+    try {
+      final landmarkObjectList = map['landmarks'];
+      if (landmarkObjectList == null) {
+        print('Warning: landmarks is null in pose data');
+        return Pose(landmarks: []);
+      }
+      
+      if (landmarkObjectList is! List) {
+        print('Warning: landmarks is not a List in pose data');
+        return Pose(landmarks: []);
+      }
+
+      final landmarkList = landmarkObjectList
+          .map((it) => PoseLandmark.fromMap(it as Map<Object?, Object?>))
+          .toList();
+      return Pose(landmarks: landmarkList);
+    } catch (e, stackTrace) {
+      print('Error parsing pose data: $e\n$stackTrace');
+      return Pose(landmarks: []);
+    }
   }
 
   static const List<List<PoseLandmarkType>> connections = [
