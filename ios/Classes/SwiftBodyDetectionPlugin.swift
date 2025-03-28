@@ -186,14 +186,16 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
             ])
             
             if self.poseDetectionEnabled {
-                let pose = self.poseDetector.detectPose(image: portraitImage)
-                
-                eventSink([
-                    "type": "pose",
-                    "pose": pose?.toMap() as Any
-                ])
+                if let pose = self.poseDetector.detectPose(image: portraitImage), !pose.landmarks.isEmpty {
+                    // Only send pose data if the pose is not nil and has landmarks
+                    eventSink([
+                        "type": "pose",
+                        "pose": pose.toMap() as Any
+                    ])
+                }
+                // Otherwise, do not send a pose event for this frame
             }
-            
+
             if self.bodyMaskDetectionEnabled {
                 let mask = self.selfieSegmenter.detectSegmentationMask(image: portraitImage)
                 

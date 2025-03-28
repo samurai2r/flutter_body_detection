@@ -180,17 +180,17 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
           val processed = detector.process(
             image,
             OnSuccessListener { pose ->
-              eventSink?.success(mapOf(
-                "type" to "pose",
-                "pose" to MLKitUtils.poseLandmarksToMap(pose)
-              ))
+              // Only send pose data if the pose is not null and has landmarks
+              if (pose != null && pose.allPoseLandmarks.isNotEmpty()) {
+                eventSink?.success(mapOf(
+                  "type" to "pose",
+                  "pose" to MLKitUtils.poseLandmarksToMap(pose)
+                ))
+              }
               imageRefDown()
             },
             OnFailureListener { _ ->
-              eventSink?.success(mapOf(
-                "type" to "pose",
-                "pose" to null
-              ))
+              // Do not send null pose on failure, just skip the event for this frame
               imageRefDown()
             }
           )
