@@ -41,7 +41,7 @@ class PoseMaskPainter extends CustomPainter {
         imageSize.height == 0 ? 1 : size.height / imageSize.height;
 
     offsetForPart(PoseLandmark part) =>
-        Offset(part.position.x * hRatio, part.position.y * vRatio);
+        Offset(part.position.dx * hRatio, part.position.dy * vRatio);
 
     // Landmark connections
     final landmarksByType = {for (final it in pose!.landmarks) it.type: it};
