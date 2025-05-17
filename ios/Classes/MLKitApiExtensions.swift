@@ -16,10 +16,49 @@ extension Pose {
 
 extension PoseLandmark {
     func toMap() -> Dictionary<String, Any> {
+        let landmarkType: String
+        switch self.type {
+        case .nose: landmarkType = "nose"
+        case .leftEyeInner: landmarkType = "leftEyeInner"
+        case .leftEye: landmarkType = "leftEye"
+        case .leftEyeOuter: landmarkType = "leftEyeOuter"
+        case .rightEyeInner: landmarkType = "rightEyeInner"
+        case .rightEye: landmarkType = "rightEye"
+        case .rightEyeOuter: landmarkType = "rightEyeOuter"
+        case .leftEar: landmarkType = "leftEar"
+        case .rightEar: landmarkType = "rightEar"
+        case .mouthLeft: landmarkType = "mouthLeft"
+        case .mouthRight: landmarkType = "mouthRight"
+        case .leftShoulder: landmarkType = "leftShoulder"
+        case .rightShoulder: landmarkType = "rightShoulder"
+        case .leftElbow: landmarkType = "leftElbow"
+        case .rightElbow: landmarkType = "rightElbow"
+        case .leftWrist: landmarkType = "leftWrist"
+        case .rightWrist: landmarkType = "rightWrist"
+        case .leftPinkyFinger: landmarkType = "leftPinkyFinger"
+        case .rightPinkyFinger: landmarkType = "rightPinkyFinger"
+        case .leftIndexFinger: landmarkType = "leftIndexFinger"
+        case .rightIndexFinger: landmarkType = "rightIndexFinger"
+        case .leftThumb: landmarkType = "leftThumb"
+        case .rightThumb: landmarkType = "rightThumb"
+        case .leftHip: landmarkType = "leftHip"
+        case .rightHip: landmarkType = "rightHip"
+        case .leftKnee: landmarkType = "leftKnee"
+        case .rightKnee: landmarkType = "rightKnee"
+        case .leftAnkle: landmarkType = "leftAnkle"
+        case .rightAnkle: landmarkType = "rightAnkle"
+        case .leftHeel: landmarkType = "leftHeel"
+        case .rightHeel: landmarkType = "rightHeel"
+        case .leftToe: landmarkType = "leftToe"
+        case .rightToe: landmarkType = "rightToe"
+        default: landmarkType = "unknown"
+        }
+
         return [
-            "inFrameLikelihood": Double(self.inFrameLikelihood),
-            "position": self.position.toMap(),
-            "type": self.type.toInt()
+            "part": landmarkType,
+            "x": Double(self.position.x),
+            "y": Double(self.position.y),
+            "visibility": Double(self.inFrameLikelihood)
         ]
     }
 }
