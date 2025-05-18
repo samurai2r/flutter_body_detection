@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
@@ -130,4 +129,8 @@ class BodyDetection {
       throw BodyDetectionException(e.code, e.message);
     }
   }
+
+  /// Dummy static registerWith for plugin registration.
+  @pragma('vm:entry-point')
+  static void registerWith() {}
 }

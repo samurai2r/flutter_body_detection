@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:ui' show Offset;
 import 'pose_landmark_type.dart';
 
@@ -25,7 +26,7 @@ class PoseLandmark {
         type: PoseLandmarkTypeExtension.fromString(part),
       );
     } catch (e, stackTrace) {
-      print('Error parsing landmark data: $e\n$stackTrace');
+      developer.log('Error parsing landmark data: $e\n$stackTrace');
       throw FormatException('Invalid landmark data format: $map');
     }
   }

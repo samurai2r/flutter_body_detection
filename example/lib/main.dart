@@ -103,8 +103,8 @@ class _MyAppState extends State<MyApp> {
 
     // To avoid a memory leak issue.
     // https://github.com/flutter/flutter/issues/60160
-    PaintingBinding.instance?.imageCache?.clear();
-    PaintingBinding.instance?.imageCache?.clearLiveImages();
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
 
     final image = Image.memory(
       result.bytes,
@@ -221,12 +221,12 @@ class _MyAppState extends State<MyApp> {
               GestureDetector(
                 child: ClipRect(
                   child: CustomPaint(
-                    child: _selectedImage,
                     foregroundPainter: PoseMaskPainter(
                       pose: _detectedPose,
                       mask: _maskImage,
                       imageSize: _imageSize,
                     ),
+                    child: _selectedImage,
                   ),
                 ),
               ),
@@ -257,12 +257,12 @@ class _MyAppState extends State<MyApp> {
             children: [
               ClipRect(
                 child: CustomPaint(
-                  child: _cameraImage,
                   foregroundPainter: PoseMaskPainter(
                     pose: _detectedPose,
                     mask: _maskImage,
                     imageSize: _imageSize,
                   ),
+                  child: _cameraImage,
                 ),
               ),
               OutlinedButton(

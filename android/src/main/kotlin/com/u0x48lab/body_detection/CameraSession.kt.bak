@@ -41,27 +41,20 @@ class CameraSession(private var context: Context) {
     }
 
     private class CustomLifecycle : LifecycleOwner {
-    private val lifecycleRegistry = LifecycleRegistry(this)
+        private val lifecycleRegistry: LifecycleRegistry = LifecycleRegistry(this)
 
-    init {
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        init {
+            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        }
+
+        fun doOnResume() {
+            lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+        }
+
+        override fun getLifecycle(): Lifecycle {
+            return lifecycleRegistry
+        }
     }
-
-    fun start() {
-        lifecycleRegistry.currentState = Lifecycle.State.STARTED
-    }
-
-    fun stop() {
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
-    }
-
-    fun destroy() {
-        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
-    }
-
-    override val lifecycle: Lifecycle
-        get() = lifecycleRegistry
-}
 
     fun switchCamera(isFront: Boolean) {
         if (cameraProvider == null) return
@@ -87,7 +80,7 @@ class CameraSession(private var context: Context) {
         processOutput = closure
 
         bindAnalysisUseCase()
-        lifecycle.start()
+        lifecycle.doOnResume()
     }
 
     fun stop() {

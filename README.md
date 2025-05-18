@@ -2,6 +2,10 @@
 
 A flutter plugin that uses MLKit on iOS/Android platforms to enable body pose and mask detection using Pose Detection and Selfie Segmentation APIs for both static images and live camera stream. When using live camera detection it runs both the camera image aquisition and detectors on the native side, which makes it faster than using the flutter camera plugin separately.
 
+[![pub package](https://img.shields.io/pub/v/body_detection.svg)](https://pub.dev/packages/body_detection)
+[![Flutter Platform](https://img.shields.io/badge/Flutter-Android%20%7C%20iOS-green.svg)](https://pub.dev/packages/body_detection)
+[![Flutter SDK](https://img.shields.io/badge/Flutter%20SDK-%3E%3D3.0.0-blue.svg)](https://pub.dev/packages/body_detection)
+
 ## Features
 
 * Body pose detection.
@@ -42,11 +46,12 @@ android {
 To use the camera you need to add uses-permission declaration to your `android/app/src/main/AndroidManifest.xml` manifest file:
 
 ```
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="YOUR_PACKAGE_NAME">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.CAMERA"/>
   ...
 ```
+
+Note: For Flutter 3.0.0 and above, the package attribute is no longer needed in the manifest file. Instead, the namespace is defined in the build.gradle file.
 
 ## Usage
 
@@ -313,4 +318,4 @@ Exception handling is not unified and could use some more work.
 
 This library is not yet battle-tested. As it's an early release it might have its features and API changed. If you encounter a problem or would like to request a feature, feel free to [open an issue](https://github.com/0x48lab/flutter_body_detection/issues) at the project's GitHub page.
 
-MLKit's Pose Detection and Selfie Segmentation are still in beta and hence this software should also be considered as such.
+MLKit's Pose Detection and Selfie Segmentation are now stable as of version 0.0.4 of this plugin.

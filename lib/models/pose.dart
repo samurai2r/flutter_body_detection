@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'pose_landmark.dart';
 import 'pose_landmark_type.dart';
 
@@ -10,12 +12,12 @@ class Pose {
     try {
       final landmarkObjectList = map['landmarks'];
       if (landmarkObjectList == null) {
-        print('Warning: landmarks is null in pose data');
+        developer.log('Warning: landmarks is null in pose data');
         return Pose(landmarks: []);
       }
-      
+
       if (landmarkObjectList is! List) {
-        print('Warning: landmarks is not a List in pose data');
+        developer.log('Warning: landmarks is not a List in pose data');
         return Pose(landmarks: []);
       }
 
@@ -24,7 +26,7 @@ class Pose {
           .toList();
       return Pose(landmarks: landmarkList);
     } catch (e, stackTrace) {
-      print('Error parsing pose data: $e\n$stackTrace');
+      developer.log('Error parsing pose data: $e\n$stackTrace');
       return Pose(landmarks: []);
     }
   }
