@@ -8,7 +8,13 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     private var poseDetectionEnabled = false
     private var bodyMaskDetectionEnabled = false
     private let poseDetector = MLKitPoseDetector(stream: true)
-    private let selfieSegmenter = MLKitSelfieSegmenter()
+    // private let selfieSegmenter = MLKitSelfieSegmenter() // Selfie segmenter removed as it's not used
+
+    // Shared Core Image context to prevent crashes from multiple instances
+    private static let sharedCIContext = CIContext(options: [
+        .workingColorSpace: NSNull(),
+        .outputColorSpace: NSNull()
+    ])
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = SwiftBodyDetectionPlugin()
@@ -120,6 +126,8 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
             result(nil)
             return
             
+        // Body mask detection methods are now effectively no-ops if called, consider removing from Flutter side.
+
         // Handle startCameraStreamPoseDetection calls.
         case "startCameraStream":
             guard self.cameraSession == nil else {
@@ -154,41 +162,38 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
             guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
                 throw BodyDetectionPluginError.custom("CameraFrame", message: "Failed to get image buffer from sample buffer.")
             }
-            
-            let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-            let context = CIContext(options: nil)
-            guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
-                return
+
+            // --- Image for Event Sink (Preview to Flutter) ---
+            // This part is for sending a preview image to Flutter. It can be optimized further if needed,
+            // but for now, we keep it to maintain existing functionality.
+            // It's now separate from the ML Kit processing path.
+            var previewImageForFlutter: UIImage? = nil
+            if self.eventSink != nil { // Only prepare image if eventSink is available
+                let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+                if let cgImage = SwiftBodyDetectionPlugin.sharedCIContext.createCGImage(ciImage, from: ciImage.extent) {
+                    let rotatedImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
+                    // Removed expensive redraw. Using UIImage from CGImage directly.
+                    previewImageForFlutter = rotatedImage
+                }
             }
-            
-            let rotatedImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
-            UIGraphicsBeginImageContext(rotatedImage.size)
-            rotatedImage.draw(at: .zero)
-            let fixedImage = UIGraphicsGetImageFromCurrentImageContext()
-            UIGraphicsEndImageContext()
-            let portraitImage = fixedImage ?? rotatedImage
-            
-            guard let eventSink = self.eventSink else {
-                return
-            }
-            
-            guard let data = portraitImage.jpegData(compressionQuality: 60),
-                  let width = portraitImage.cgImage?.width,
-                  let height = portraitImage.cgImage?.height else {
-                return
-            }
-            
-            eventSink([
-                "type": "image",
-                "image": data,
-                "width": width,
-                "height": height
-            ])
-            
-            if self.poseDetectionEnabled {
-                if let pose = self.poseDetector.detectPose(image: portraitImage), !pose.landmarks.isEmpty {
-                    // Only send pose data if the pose is not nil and has landmarks
+
+            if let imageToSend = previewImageForFlutter, let eventSink = self.eventSink {
+                if let data = imageToSend.jpegData(compressionQuality: 0.6), // Lowered quality for less data
+                   let cgImg = imageToSend.cgImage {
                     eventSink([
+                        "type": "image",
+                        "image": data,
+                        "width": cgImg.width,
+                        "height": cgImg.height
+                    ])
+                }
+            }
+            
+            // --- ML Kit Pose Detection (using CMSampleBuffer directly) ---
+            if self.poseDetectionEnabled {
+                // Use the new detector method with CMSampleBuffer and orientation
+                if let pose = self.poseDetector.detectPose(sampleBuffer: sampleBuffer, imageOrientation: orientation), !pose.landmarks.isEmpty {
+                    self.eventSink?([
                         "type": "pose",
                         "pose": pose.toMap() as Any
                     ])
@@ -196,14 +201,7 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
                 // Otherwise, do not send a pose event for this frame
             }
 
-            if self.bodyMaskDetectionEnabled {
-                let mask = self.selfieSegmenter.detectSegmentationMask(image: portraitImage)
-                
-                eventSink([
-                    "type": "mask",
-                    "mask": mask?.toMap() as Any
-                ])
-            }
+            // Selfie segmentation has been removed as it's not used.
         } catch {
             self.eventSink?(error.toFlutterError())
         }

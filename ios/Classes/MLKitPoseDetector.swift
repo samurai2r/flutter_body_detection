@@ -6,6 +6,7 @@ import MLKitPoseDetectionCommon
 import MLKitPoseDetection
 import MLKitPoseDetectionAccurate
 
+
 class MLKitPoseDetector {
     private let poseDetector: PoseDetector
     private var isWorking = false
@@ -16,6 +17,7 @@ class MLKitPoseDetector {
         self.poseDetector = PoseDetector.poseDetector(options: options)
     }
 
+    // Existing method for UIImage
     func detectPose(image: UIImage?) -> Pose? {
         guard let image = image else { return nil }
 
@@ -35,7 +37,30 @@ class MLKitPoseDetector {
             let poses = try poseDetector.results(in: inputImage)
             return poses.first
         } catch let error {
-            print("Failed to detect poses with error: \(error.localizedDescription).")
+            print("Failed to detect poses from UIImage with error: \(error.localizedDescription).")
+            return nil
+        }
+    }
+
+    // New method for CMSampleBuffer
+    func detectPose(sampleBuffer: CMSampleBuffer, imageOrientation: UIImage.Orientation) -> Pose? {
+        guard !self.isWorking else {
+            // print("Pose detector is already working on a frame.") // Optional: reduce log noise if too frequent
+            return nil
+        }
+        self.isWorking = true
+        defer {
+            self.isWorking = false
+        }
+
+        let visionImage = VisionImage(buffer: sampleBuffer)
+        visionImage.orientation = imageOrientation // Use the pre-calculated orientation from CameraSession + UIUtilities
+
+        do {
+            let poses = try poseDetector.results(in: visionImage)
+            return poses.first
+        } catch let error {
+            print("Failed to detect poses from sample buffer with error: \(error.localizedDescription).")
             return nil
         }
     }
