@@ -7,59 +7,87 @@ import MLKitSegmentationCommon
 // MARK: - Pose-related extensions
 
 extension Pose {
-    func toMap() -> Dictionary<String, Any> {
+    func toMap(isFrontCamera: Bool = true) -> Dictionary<String, Any> {
         return [
-            "landmarks": self.landmarks.map { $0.toMap() }
+            "landmarks": self.landmarks.map { $0.toMap(isFrontCamera: isFrontCamera) }
         ]
     }
 }
 
 extension PoseLandmark {
-    func toMap() -> Dictionary<String, Any> {
-        let landmarkType: String
+    func toMap(isFrontCamera: Bool = true) -> Dictionary<String, Any> {
+        let originalLandmarkType: String
         switch self.type {
-        case .nose: landmarkType = "nose"
-        case .leftEyeInner: landmarkType = "leftEyeInner"
-        case .leftEye: landmarkType = "leftEye"
-        case .leftEyeOuter: landmarkType = "leftEyeOuter"
-        case .rightEyeInner: landmarkType = "rightEyeInner"
-        case .rightEye: landmarkType = "rightEye"
-        case .rightEyeOuter: landmarkType = "rightEyeOuter"
-        case .leftEar: landmarkType = "leftEar"
-        case .rightEar: landmarkType = "rightEar"
-        case .mouthLeft: landmarkType = "mouthLeft"
-        case .mouthRight: landmarkType = "mouthRight"
-        case .leftShoulder: landmarkType = "leftShoulder"
-        case .rightShoulder: landmarkType = "rightShoulder"
-        case .leftElbow: landmarkType = "leftElbow"
-        case .rightElbow: landmarkType = "rightElbow"
-        case .leftWrist: landmarkType = "leftWrist"
-        case .rightWrist: landmarkType = "rightWrist"
-        case .leftPinkyFinger: landmarkType = "leftPinkyFinger"
-        case .rightPinkyFinger: landmarkType = "rightPinkyFinger"
-        case .leftIndexFinger: landmarkType = "leftIndexFinger"
-        case .rightIndexFinger: landmarkType = "rightIndexFinger"
-        case .leftThumb: landmarkType = "leftThumb"
-        case .rightThumb: landmarkType = "rightThumb"
-        case .leftHip: landmarkType = "leftHip"
-        case .rightHip: landmarkType = "rightHip"
-        case .leftKnee: landmarkType = "leftKnee"
-        case .rightKnee: landmarkType = "rightKnee"
-        case .leftAnkle: landmarkType = "leftAnkle"
-        case .rightAnkle: landmarkType = "rightAnkle"
-        case .leftHeel: landmarkType = "leftHeel"
-        case .rightHeel: landmarkType = "rightHeel"
-        case .leftToe: landmarkType = "leftToe"
-        case .rightToe: landmarkType = "rightToe"
-        default: landmarkType = "unknown"
+        case .nose: originalLandmarkType = "nose"
+        case .leftEyeInner: originalLandmarkType = "leftEyeInner"
+        case .leftEye: originalLandmarkType = "leftEye"
+        case .leftEyeOuter: originalLandmarkType = "leftEyeOuter"
+        case .rightEyeInner: originalLandmarkType = "rightEyeInner"
+        case .rightEye: originalLandmarkType = "rightEye"
+        case .rightEyeOuter: originalLandmarkType = "rightEyeOuter"
+        case .leftEar: originalLandmarkType = "leftEar"
+        case .rightEar: originalLandmarkType = "rightEar"
+        case .mouthLeft: originalLandmarkType = "mouthLeft"
+        case .mouthRight: originalLandmarkType = "mouthRight"
+        case .leftShoulder: originalLandmarkType = "leftShoulder"
+        case .rightShoulder: originalLandmarkType = "rightShoulder"
+        case .leftElbow: originalLandmarkType = "leftElbow"
+        case .rightElbow: originalLandmarkType = "rightElbow"
+        case .leftWrist: originalLandmarkType = "leftWrist"
+        case .rightWrist: originalLandmarkType = "rightWrist"
+        case .leftPinkyFinger: originalLandmarkType = "leftPinkyFinger"
+        case .rightPinkyFinger: originalLandmarkType = "rightPinkyFinger"
+        case .leftIndexFinger: originalLandmarkType = "leftIndexFinger"
+        case .rightIndexFinger: originalLandmarkType = "rightIndexFinger"
+        case .leftThumb: originalLandmarkType = "leftThumb"
+        case .rightThumb: originalLandmarkType = "rightThumb"
+        case .leftHip: originalLandmarkType = "leftHip"
+        case .rightHip: originalLandmarkType = "rightHip"
+        case .leftKnee: originalLandmarkType = "leftKnee"
+        case .rightKnee: originalLandmarkType = "rightKnee"
+        case .leftAnkle: originalLandmarkType = "leftAnkle"
+        case .rightAnkle: originalLandmarkType = "rightAnkle"
+        case .leftHeel: originalLandmarkType = "leftHeel"
+        case .rightHeel: originalLandmarkType = "rightHeel"
+        case .leftToe: originalLandmarkType = "leftToe"
+        case .rightToe: originalLandmarkType = "rightToe"
+        default: originalLandmarkType = "unknown"
         }
+
+        // Apply landmark name mirroring for front camera
+        let landmarkType = isFrontCamera ? mirrorLandmarkName(originalLandmarkType) : originalLandmarkType
+
+        // Apply coordinate mirroring for front camera (flip X coordinate)
+        // Note: MLKit on iOS provides coordinates in image space (not normalized)
+        // We'll let the Flutter side handle coordinate normalization and mirroring
+        // For now, just pass through the original coordinates
+        let x = Double(self.position.x)
+        let y = Double(self.position.y)
 
         return [
             "part": landmarkType,
-            "x": Double(self.position.x),
-            "y": Double(self.position.y),
+            "x": x,
+            "y": y,
             "visibility": Double(self.inFrameLikelihood)
         ]
+    }
+
+    /**
+     * Mirrors landmark names for front-facing camera.
+     * Swaps left/right designations to match user's perspective.
+     */
+    private func mirrorLandmarkName(_ landmarkName: String) -> String {
+        if landmarkName.hasPrefix("left") {
+            return landmarkName.replacingOccurrences(of: "left", with: "right", options: [.anchored])
+        } else if landmarkName.hasPrefix("right") {
+            return landmarkName.replacingOccurrences(of: "right", with: "left", options: [.anchored])
+        } else if landmarkName == "mouthLeft" {
+            return "mouthRight"
+        } else if landmarkName == "mouthRight" {
+            return "mouthLeft"
+        } else {
+            return landmarkName // No change for center landmarks like nose
+        }
     }
 }
 

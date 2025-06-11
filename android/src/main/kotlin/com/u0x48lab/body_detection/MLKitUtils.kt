@@ -4,11 +4,11 @@ import com.google.mlkit.vision.pose.Pose
 import com.google.mlkit.vision.pose.PoseLandmark
 
 object MLKitUtils {
-    fun poseLandmarksToMap(pose: Pose): Map<String, Any> {
+    fun poseLandmarksToMap(pose: Pose, isFrontCamera: Boolean = true): Map<String, Any> {
         val landmarks = mutableListOf<Map<String, Any>>()
-        
+
         pose.allPoseLandmarks.forEach { landmark ->
-            val landmarkType = when (landmark.landmarkType) {
+            val originalLandmarkType = when (landmark.landmarkType) {
                 PoseLandmark.NOSE -> "nose"
                 PoseLandmark.LEFT_EYE_INNER -> "leftEyeInner"
                 PoseLandmark.LEFT_EYE -> "leftEye"
@@ -45,15 +45,42 @@ object MLKitUtils {
                 else -> return@forEach
             }
 
+            // Apply landmark name mirroring for front camera
+            val landmarkType = if (isFrontCamera) {
+                mirrorLandmarkName(originalLandmarkType)
+            } else {
+                originalLandmarkType
+            }
+
+            // For coordinate mirroring, we'll let the Flutter side handle it
+            // since it has better context about the image dimensions and normalization
+            // Just pass through the original coordinates
+            val x = landmark.position.x
+            val y = landmark.position.y
+
             landmarks.add(mapOf(
                 "part" to landmarkType,
-                "x" to landmark.position.x,
-                "y" to landmark.position.y,
+                "x" to x,
+                "y" to y,
                 "visibility" to landmark.inFrameLikelihood
             ))
         }
 
         return mapOf("landmarks" to landmarks)
+    }
+
+    /**
+     * Mirrors landmark names for front-facing camera.
+     * Swaps left/right designations to match user's perspective.
+     */
+    private fun mirrorLandmarkName(landmarkName: String): String {
+        return when {
+            landmarkName.startsWith("left") -> landmarkName.replaceFirst("left", "right")
+            landmarkName.startsWith("right") -> landmarkName.replaceFirst("right", "left")
+            landmarkName == "mouthLeft" -> "mouthRight"
+            landmarkName == "mouthRight" -> "mouthLeft"
+            else -> landmarkName // No change for center landmarks like nose
+        }
     }
 
     fun getPoseLandmarkPosition(landmark: PoseLandmark): Map<String, Any> {

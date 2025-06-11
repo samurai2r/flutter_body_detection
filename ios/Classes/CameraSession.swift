@@ -63,9 +63,13 @@ public class CameraSession: NSObject {
                 return
             }
             strongSelf.captureSession.stopRunning()
-            
+
             self.processOutput = nil
         }
+    }
+
+    public func isFrontCamera() -> Bool {
+        return isUsingFrontCamera
     }
     
     // MARK: - Private

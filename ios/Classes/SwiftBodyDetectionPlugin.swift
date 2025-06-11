@@ -48,8 +48,9 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
                         
                         let detector = MLKitPoseDetector(stream: false)
                         let pose = detector.detectPose(image: uiImage)
-                        
-                        let resultValue = pose?.toMap()
+
+                        // For static image detection, assume front camera (can be made configurable if needed)
+                        let resultValue = pose?.toMap(isFrontCamera: true)
                         
                         DispatchQueue.main.async {
                             result(resultValue)
@@ -193,9 +194,11 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
             if self.poseDetectionEnabled {
                 // Use the new detector method with CMSampleBuffer and orientation
                 if let pose = self.poseDetector.detectPose(sampleBuffer: sampleBuffer, imageOrientation: orientation), !pose.landmarks.isEmpty {
+                    // Check if camera is front-facing (iOS typically uses front camera by default)
+                    let isFrontCamera = self.cameraSession?.isFrontCamera() ?? true
                     self.eventSink?([
                         "type": "pose",
-                        "pose": pose.toMap() as Any
+                        "pose": pose.toMap(isFrontCamera: isFrontCamera) as Any
                     ])
                 }
                 // Otherwise, do not send a pose event for this frame

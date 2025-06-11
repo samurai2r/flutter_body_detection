@@ -54,7 +54,7 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
   private fun handleDetectImagePose(call: MethodCall, result: MethodChannel.Result) {
     val imageData = call.argument<ByteArray>("pngImageBytes")
     val options = call.argument<Map<String, Any>>("options")
-    
+
     if (imageData == null) {
       result.error("invalid_parameter", "PNG image bytes cannot be null", null)
       return
@@ -62,7 +62,10 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
 
     val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
     val image = InputImage.fromBitmap(bitmap, 0)
-    
+
+    // For static image detection, assume front camera (can be made configurable if needed)
+    val isFrontCamera = options?.get("isFrontCamera") as? Boolean ?: true
+
     MLKitPoseDetector(
       stream = false,
       preferGPU = options?.get("preferGPU") as? Boolean ?: false,
@@ -71,7 +74,7 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
     ).process(
       image,
       OnSuccessListener { pose ->
-        result.success(MLKitUtils.poseLandmarksToMap(pose))
+        result.success(MLKitUtils.poseLandmarksToMap(pose, isFrontCamera))
       },
       OnFailureListener { e ->
         result.error("PoseDetectorError", e.localizedMessage, e.stackTrace)
@@ -109,7 +112,9 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
   private fun handleStartCameraStream(result: MethodChannel.Result) {
     val session = CameraSession(context)
     session.start { imageProxy, rotationDegrees ->
-      handleCameraFrame(imageProxy, rotationDegrees)
+      // Check if camera is front-facing
+      val isFrontCamera = session.isFrontCamera()
+      handleCameraFrame(imageProxy, rotationDegrees, isFrontCamera)
     }
     cameraSession = session
     result.success(true)
@@ -122,7 +127,7 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
   }
 
   @SuppressLint("UnsafeExperimentalUsageError")
-  private fun handleCameraFrame(imageProxy: ImageProxy, rotationDegrees: Int) {
+  private fun handleCameraFrame(imageProxy: ImageProxy, rotationDegrees: Int, isFrontCamera: Boolean = true) {
     var imageProxyClosed = false
 
     fun safeCloseImageProxy() {
@@ -179,7 +184,7 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
                     println("✅ POSE DETECTED with ${pose.allPoseLandmarks.size} landmarks (direct processing)")
                     eventSink?.success(mapOf(
                       "type" to "pose",
-                      "pose" to MLKitUtils.poseLandmarksToMap(pose)
+                      "pose" to MLKitUtils.poseLandmarksToMap(pose, isFrontCamera)
                     ))
                   } else {
                     println("⚠️ Pose detected but no landmarks (direct processing)")

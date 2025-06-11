@@ -88,6 +88,10 @@ class CameraSession(private var context: Context) {
         processOutput = null
     }
 
+    fun isFrontCamera(): Boolean {
+        return lensFacing == CameraSelector.LENS_FACING_FRONT
+    }
+
     private fun unbindAnalysisUseCase() {
         if (cameraProvider == null) return
 
