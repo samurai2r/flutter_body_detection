@@ -123,6 +123,15 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
 
   @SuppressLint("UnsafeExperimentalUsageError")
   private fun handleCameraFrame(imageProxy: ImageProxy, rotationDegrees: Int) {
+    var imageProxyClosed = false
+
+    fun safeCloseImageProxy() {
+      if (!imageProxyClosed) {
+        imageProxy.close()
+        imageProxyClosed = true
+      }
+    }
+
     try {
       // Debug logging
       println("handleCameraFrame called - poseDetectionEnabled: $poseDetectionEnabled, imageProxy.image: ${imageProxy.image != null}")
@@ -153,65 +162,76 @@ class BodyDetectionPlugin: FlutterPlugin, MethodChannel.MethodCallHandler, Event
         previewBitmapForFlutter.recycle()
       }
 
-      // --- ML Kit Pose Detection ---
-      if (poseDetectionEnabled) {
+      // --- ML Kit Pose Detection (Direct ImageProxy - Maximum Performance) ---
+      if (poseDetectionEnabled && imageProxy.image != null) {
         try {
-          // Use bitmap approach for now to avoid ImageProxy closure issues
-          val bitmap = BitmapUtils.getBitmap(imageProxy, true)
-          if (bitmap != null) {
-            val image = InputImage.fromBitmap(bitmap, 0)
-            println("Created InputImage from Bitmap for pose detection")
+          // Use direct ImageProxy processing - much faster than bitmap conversion
+          val image = InputImage.fromMediaImage(imageProxy.image!!, rotationDegrees)
+          println("🚀 Created InputImage from MediaImage (direct processing)")
 
-            poseDetector?.let { detector ->
-              val processed = detector.process(
-                image,
-                OnSuccessListener { pose ->
+          poseDetector?.let { detector ->
+            val processed = detector.process(
+              image,
+              OnSuccessListener { pose ->
+                try {
                   // Only send pose data if the pose is not null and has landmarks
                   if (pose != null && pose.allPoseLandmarks.isNotEmpty()) {
-                    println("✅ POSE DETECTED with ${pose.allPoseLandmarks.size} landmarks")
+                    println("✅ POSE DETECTED with ${pose.allPoseLandmarks.size} landmarks (direct processing)")
                     eventSink?.success(mapOf(
                       "type" to "pose",
                       "pose" to MLKitUtils.poseLandmarksToMap(pose)
                     ))
                   } else {
-                    println("⚠️ Pose detected but no landmarks")
+                    println("⚠️ Pose detected but no landmarks (direct processing)")
                   }
-                  // Clean up bitmap after successful processing
-                  bitmap.recycle()
-                },
-                OnFailureListener { error ->
-                  // Log pose detection errors for debugging
-                  println("Pose detection error: ${error.localizedMessage}")
-                  error.printStackTrace()
-                  // Clean up bitmap after failed processing
-                  bitmap.recycle()
+                } catch (e: Exception) {
+                  println("Error processing pose result: ${e.localizedMessage}")
+                  e.printStackTrace()
+                } finally {
+                  // Close ImageProxy after successful processing
+                  safeCloseImageProxy()
                 }
-              )
-              if (!processed) {
-                println("Pose detector failed to process frame - detector busy")
-                bitmap.recycle() // Clean up if processing failed
+              },
+              OnFailureListener { error ->
+                try {
+                  // Log pose detection errors for debugging
+                  println("Pose detection error (direct processing): ${error.localizedMessage}")
+                  error.printStackTrace()
+                } finally {
+                  // Close ImageProxy after failed processing
+                  safeCloseImageProxy()
+                }
               }
-            } ?: run {
-              println("Pose detector is null")
-              bitmap.recycle() // Clean up if no detector
+            )
+            if (!processed) {
+              println("Pose detector failed to process frame - detector busy")
+              safeCloseImageProxy() // Close if processing failed to start
             }
-          } else {
-            println("Failed to create bitmap for pose detection")
+          } ?: run {
+            println("Pose detector is null")
+            safeCloseImageProxy() // Close if no detector
           }
         } catch (e: Exception) {
-          println("Error in pose detection: ${e.localizedMessage}")
+          println("Error creating InputImage from MediaImage: ${e.localizedMessage}")
           e.printStackTrace()
+          safeCloseImageProxy() // Close on error
         }
+      } else {
+        // No pose detection enabled or no image data, close immediately
+        if (poseDetectionEnabled) {
+          println("Pose detection enabled but imageProxy.image is null")
+        }
+        safeCloseImageProxy()
       }
 
       // Selfie segmentation has been removed as it's not used.
     } catch (e: Exception) {
       // Handle any errors gracefully
+      println("Error in handleCameraFrame: ${e.localizedMessage}")
       e.printStackTrace()
-    } finally {
-      // Always close the imageProxy
-      imageProxy.close()
+      safeCloseImageProxy() // Ensure cleanup on any error
     }
+    // Note: No finally block - ImageProxy closure is handled by ML Kit callbacks or error cases
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
