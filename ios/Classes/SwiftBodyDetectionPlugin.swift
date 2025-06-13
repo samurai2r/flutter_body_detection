@@ -1,5 +1,7 @@
 import Flutter
 import UIKit
+import Metal
+import VideoToolbox
 
 public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     private let serialQueue = DispatchQueue(label: "swiftbodydetectionplugin.serial.queue")
@@ -10,20 +12,64 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     private let poseDetector = MLKitPoseDetector(stream: true)
     // private let selfieSegmenter = MLKitSelfieSegmenter() // Selfie segmenter removed as it's not used
 
-    // Shared Core Image context to prevent crashes from multiple instances
-    private static let sharedCIContext = CIContext(options: [
-        .workingColorSpace: NSNull(),
-        .outputColorSpace: NSNull()
-    ])
+    // Optimized Core Image context with Metal backend and dedicated serial queue
+    private static let ciContext = CIContext(
+        mtlDevice: MTLCreateSystemDefaultDevice()!,
+        options: [
+            .workingColorSpace: NSNull(),
+            .outputColorSpace: NSNull(),
+            .cacheIntermediates: false  // Prevents hidden retain cycles and GPU texture leaks
+        ]
+    )
+    private static let ciQueue = DispatchQueue(label: "ci.render.serial")  // Dedicated CI queue
+    private static let poseDetectionQueue = DispatchQueue(label: "pose.detection.queue")  // Dedicated pose detection queue
+
+    // Frame counter for preview throttling (optional optimization)
+    private var frameCounter: Int = 0
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = SwiftBodyDetectionPlugin()
-        
+
         let channel = FlutterMethodChannel(name: "com.0x48lab/body_detection", binaryMessenger: registrar.messenger())
         registrar.addMethodCallDelegate(instance, channel: channel)
-        
+
         let eventChannel = FlutterEventChannel(name: "com.0x48lab/body_detection/image_stream", binaryMessenger: registrar.messenger())
         eventChannel.setStreamHandler(instance)
+
+        // Register for memory pressure and background notifications
+        instance.setupNotificationObservers()
+    }
+
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemoryPressure),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleMemoryPressure() {
+        SwiftBodyDetectionPlugin.ciQueue.async {
+            SwiftBodyDetectionPlugin.ciContext.clearCaches()
+        }
+    }
+
+    @objc private func handleAppDidEnterBackground() {
+        SwiftBodyDetectionPlugin.ciQueue.async {
+            SwiftBodyDetectionPlugin.ciContext.clearCaches()
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -159,54 +205,99 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     }
     
     private func handleCameraFrame(sampleBuffer: CMSampleBuffer, orientation: UIImage.Orientation) {
-        do {
-            guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-                throw BodyDetectionPluginError.custom("CameraFrame", message: "Failed to get image buffer from sample buffer.")
-            }
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            self.eventSink?(BodyDetectionPluginError.custom("CameraFrame", message: "Failed to get image buffer from sample buffer.").toFlutterError())
+            return
+        }
 
-            // --- Image for Event Sink (Preview to Flutter) ---
-            // This part is for sending a preview image to Flutter. It can be optimized further if needed,
-            // but for now, we keep it to maintain existing functionality.
-            // It's now separate from the ML Kit processing path.
-            var previewImageForFlutter: UIImage? = nil
-            if self.eventSink != nil { // Only prepare image if eventSink is available
-                let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-                if let cgImage = SwiftBodyDetectionPlugin.sharedCIContext.createCGImage(ciImage, from: ciImage.extent) {
-                    let rotatedImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
-                    // Removed expensive redraw. Using UIImage from CGImage directly.
-                    previewImageForFlutter = rotatedImage
+        frameCounter += 1
+
+        // --- Asynchronous Pose Detection (always execute - no frame drops) ---
+        if self.poseDetectionEnabled {
+            SwiftBodyDetectionPlugin.poseDetectionQueue.async { [weak self] in
+                self?.performPoseDetection(sampleBuffer: sampleBuffer, orientation: orientation)
+            }
+        }
+
+        // --- Preview Generation (throttled and on dedicated CI queue) ---
+        // Generate preview every 3rd frame to reduce CI workload while maintaining smooth preview
+        if self.eventSink != nil && frameCounter.isMultiple(of: 3) {
+            // Capture the pixel buffer in the closure to ensure it stays alive
+            SwiftBodyDetectionPlugin.ciQueue.async { [weak self, imageBuffer] in
+                autoreleasepool {
+                    self?.generatePreviewImage(imageBuffer: imageBuffer, orientation: orientation)
                 }
             }
+        }
 
-            if let imageToSend = previewImageForFlutter, let eventSink = self.eventSink {
-                if let data = imageToSend.jpegData(compressionQuality: 0.6), // Lowered quality for less data
-                   let cgImg = imageToSend.cgImage {
-                    eventSink([
-                        "type": "image",
-                        "image": data,
-                        "width": cgImg.width,
-                        "height": cgImg.height
-                    ])
-                }
+        // Periodic cache clearing to prevent memory buildup
+        if frameCounter.isMultiple(of: 300) { // Every ~10 seconds at 30fps
+            SwiftBodyDetectionPlugin.ciQueue.async {
+                SwiftBodyDetectionPlugin.ciContext.clearCaches()
             }
-            
-            // --- ML Kit Pose Detection (using CMSampleBuffer directly) ---
-            if self.poseDetectionEnabled {
-                // Use the new detector method with CMSampleBuffer and orientation
-                if let pose = self.poseDetector.detectPose(sampleBuffer: sampleBuffer, imageOrientation: orientation), !pose.landmarks.isEmpty {
-                    // Check if camera is front-facing (iOS typically uses front camera by default)
-                    let isFrontCamera = self.cameraSession?.isFrontCamera() ?? true
-                    self.eventSink?([
-                        "type": "pose",
-                        "pose": pose.toMap(isFrontCamera: isFrontCamera) as Any
-                    ])
-                }
-                // Otherwise, do not send a pose event for this frame
-            }
+        }
+    }
 
-            // Selfie segmentation has been removed as it's not used.
-        } catch {
-            self.eventSink?(error.toFlutterError())
+    private func performPoseDetection(sampleBuffer: CMSampleBuffer, orientation: UIImage.Orientation) {
+        // Use asynchronous ML Kit API to prevent blocking
+        self.poseDetector.detectPoseAsync(sampleBuffer: sampleBuffer, imageOrientation: orientation) { [weak self] pose in
+            guard let self = self, let pose = pose, !pose.landmarks.isEmpty else { return }
+
+            // Check if camera is front-facing
+            let isFrontCamera = self.cameraSession?.isFrontCamera() ?? true
+
+            DispatchQueue.main.async {
+                self.eventSink?([
+                    "type": "pose",
+                    "pose": pose.toMap(isFrontCamera: isFrontCamera) as Any
+                ])
+            }
+        }
+    }
+
+    private func generatePreviewImage(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) {
+        // Try Core Image first, fallback to VideoToolbox if CI fails
+        if let previewImage = generatePreviewWithCoreImage(imageBuffer: imageBuffer, orientation: orientation) {
+            sendPreviewToFlutter(previewImage)
+        } else if let previewImage = generatePreviewWithVideoToolbox(imageBuffer: imageBuffer, orientation: orientation) {
+            sendPreviewToFlutter(previewImage)
+        }
+    }
+
+    private func generatePreviewWithCoreImage(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) -> UIImage? {
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+
+        guard let cgImage = SwiftBodyDetectionPlugin.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+            return nil
+        }
+
+        return UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
+    }
+
+    private func generatePreviewWithVideoToolbox(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) -> UIImage? {
+        var cgImage: CGImage?
+        let status = VTCreateCGImageFromCVPixelBuffer(imageBuffer, options: nil, imageOut: &cgImage)
+
+        guard status == noErr, let validCGImage = cgImage else {
+            return nil
+        }
+
+        return UIImage(cgImage: validCGImage, scale: 1.0, orientation: orientation)
+    }
+
+    private func sendPreviewToFlutter(_ previewImage: UIImage) {
+        guard let data = previewImage.jpegData(compressionQuality: 0.6),
+              let cgImg = previewImage.cgImage else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.eventSink?([
+                "type": "image",
+                "image": data,
+                "width": cgImg.width,
+                "height": cgImg.height
+            ])
         }
     }
 }

@@ -9,7 +9,7 @@ import MLKitPoseDetectionAccurate
 
 class MLKitPoseDetector {
     private let poseDetector: PoseDetector
-    private var isWorking = false
+    // Removed isWorking flag - no longer needed with asynchronous API
 
     init(stream: Bool) {
         let options = AccuratePoseDetectorOptions()
@@ -17,7 +17,7 @@ class MLKitPoseDetector {
         self.poseDetector = PoseDetector.poseDetector(options: options)
     }
 
-    // Existing method for UIImage
+    // Existing method for UIImage (synchronous - for static image detection)
     func detectPose(image: UIImage?) -> Pose? {
         guard let image = image else { return nil }
 
@@ -26,12 +26,6 @@ class MLKitPoseDetector {
             return nil
         }
         inputImage.orientation = image.imageOrientation
-
-        guard !self.isWorking else { return nil }
-        self.isWorking = true
-        defer {
-            self.isWorking = false
-        }
 
         do {
             let poses = try poseDetector.results(in: inputImage)
@@ -42,19 +36,10 @@ class MLKitPoseDetector {
         }
     }
 
-    // New method for CMSampleBuffer
+    // Legacy synchronous method for CMSampleBuffer (kept for compatibility)
     func detectPose(sampleBuffer: CMSampleBuffer, imageOrientation: UIImage.Orientation) -> Pose? {
-        guard !self.isWorking else {
-            // print("Pose detector is already working on a frame.") // Optional: reduce log noise if too frequent
-            return nil
-        }
-        self.isWorking = true
-        defer {
-            self.isWorking = false
-        }
-
         let visionImage = VisionImage(buffer: sampleBuffer)
-        visionImage.orientation = imageOrientation // Use the pre-calculated orientation from CameraSession + UIUtilities
+        visionImage.orientation = imageOrientation
 
         do {
             let poses = try poseDetector.results(in: visionImage)
@@ -62,6 +47,22 @@ class MLKitPoseDetector {
         } catch let error {
             print("Failed to detect poses from sample buffer with error: \(error.localizedDescription).")
             return nil
+        }
+    }
+
+    // New asynchronous method for CMSampleBuffer - prevents blocking and eliminates need for isWorking flag
+    func detectPoseAsync(sampleBuffer: CMSampleBuffer, imageOrientation: UIImage.Orientation, completion: @escaping (Pose?) -> Void) {
+        let visionImage = VisionImage(buffer: sampleBuffer)
+        visionImage.orientation = imageOrientation
+
+        poseDetector.process(visionImage) { poses, error in
+            if let error = error {
+                print("Failed to detect poses from sample buffer with error: \(error.localizedDescription).")
+                completion(nil)
+                return
+            }
+
+            completion(poses?.first)
         }
     }
 }
