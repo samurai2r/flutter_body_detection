@@ -34,8 +34,11 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
 
     // Circuit breaker for Core Image - disable if too many failures
     private var coreImageFailureCount: Int = 0
-    private var coreImageDisabled: Bool = false
+    private var coreImageDisabled: Bool = true  // Start with CI disabled due to persistent crashes
     private let maxCoreImageFailures: Int = 5
+
+    // Configuration flag to completely disable Core Image (set to true for crash-free operation)
+    private static let forceVideoToolboxOnly: Bool = true
 
     private static func getOptimalThrottleFactor() -> Int {
         let deviceModel = UIDevice.current.model
@@ -105,8 +108,9 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
         // Register for memory pressure and background notifications
         instance.setupNotificationObservers()
 
-        // Log the selected throttling factor for debugging
+        // Log the selected configuration for debugging
         print("Body Detection: Using preview throttle factor \(instance.previewThrottleFactor) for device performance optimization")
+        print("Body Detection: Preview generation mode - \(Self.forceVideoToolboxOnly ? "VideoToolbox-only (crash-safe)" : "Core Image with VideoToolbox fallback")")
     }
 
     private func setupNotificationObservers() {
@@ -367,38 +371,43 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     }
 
     private func generatePreviewImage(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) {
-        // Check circuit breaker and memory pressure
-        let memoryPressure = ProcessInfo.processInfo.thermalState
-        let shouldUseCoreImage = !coreImageDisabled &&
-                                memoryPressure != .critical &&
-                                memoryPressure != .serious
-
         var previewImage: UIImage?
 
-        if shouldUseCoreImage {
-            // Try Core Image with circuit breaker pattern
-            do {
-                previewImage = try generatePreviewWithCoreImageSafe(imageBuffer: imageBuffer, orientation: orientation)
-                // Reset failure count on success
-                if previewImage != nil {
-                    coreImageFailureCount = 0
-                }
-            } catch {
-                print("Core Image preview generation failed: \(error.localizedDescription)")
-                coreImageFailureCount += 1
-
-                // Disable Core Image if too many failures
-                if coreImageFailureCount >= maxCoreImageFailures {
-                    coreImageDisabled = true
-                    print("Body Detection: Core Image disabled due to repeated failures. Using VideoToolbox only.")
-                }
-                previewImage = nil
-            }
-        }
-
-        // Fallback to VideoToolbox if CI failed, disabled, or memory pressure is high
-        if previewImage == nil {
+        // Use VideoToolbox-only mode to eliminate CI crashes completely
+        if Self.forceVideoToolboxOnly {
             previewImage = generatePreviewWithVideoToolbox(imageBuffer: imageBuffer, orientation: orientation)
+        } else {
+            // Legacy Core Image path (disabled by default due to crashes)
+            let memoryPressure = ProcessInfo.processInfo.thermalState
+            let shouldUseCoreImage = !coreImageDisabled &&
+                                    memoryPressure != .critical &&
+                                    memoryPressure != .serious
+
+            if shouldUseCoreImage {
+                // Try Core Image with circuit breaker pattern
+                do {
+                    previewImage = try generatePreviewWithCoreImageSafe(imageBuffer: imageBuffer, orientation: orientation)
+                    // Reset failure count on success
+                    if previewImage != nil {
+                        coreImageFailureCount = 0
+                    }
+                } catch {
+                    print("Core Image preview generation failed: \(error.localizedDescription)")
+                    coreImageFailureCount += 1
+
+                    // Disable Core Image if too many failures
+                    if coreImageFailureCount >= maxCoreImageFailures {
+                        coreImageDisabled = true
+                        print("Body Detection: Core Image disabled due to repeated failures. Using VideoToolbox only.")
+                    }
+                    previewImage = nil
+                }
+            }
+
+            // Fallback to VideoToolbox if CI failed, disabled, or memory pressure is high
+            if previewImage == nil {
+                previewImage = generatePreviewWithVideoToolbox(imageBuffer: imageBuffer, orientation: orientation)
+            }
         }
 
         if let image = previewImage {
@@ -444,11 +453,62 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     }
 
     private func generatePreviewWithVideoToolbox(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) -> UIImage? {
+        // Validate pixel buffer before processing
+        guard CVPixelBufferGetWidth(imageBuffer) > 0 && CVPixelBufferGetHeight(imageBuffer) > 0 else {
+            return nil
+        }
+
+        // Create options for VideoToolbox conversion
+        let options: [String: Any] = [
+            kVTPixelTransferPropertyKey_ScalingMode as String: kVTScalingMode_Trim,
+            kVTPixelTransferPropertyKey_DestinationCleanAperture as String: [
+                kCVImageBufferCleanApertureWidthKey: CVPixelBufferGetWidth(imageBuffer),
+                kCVImageBufferCleanApertureHeightKey: CVPixelBufferGetHeight(imageBuffer),
+                kCVImageBufferCleanApertureHorizontalOffsetKey: 0,
+                kCVImageBufferCleanApertureVerticalOffsetKey: 0
+            ]
+        ]
+
         var cgImage: CGImage?
-        let status = VTCreateCGImageFromCVPixelBuffer(imageBuffer, options: nil, imageOut: &cgImage)
+        let status = VTCreateCGImageFromCVPixelBuffer(
+            imageBuffer,
+            options: options as CFDictionary,
+            imageOut: &cgImage
+        )
 
         guard status == noErr, let validCGImage = cgImage else {
+            print("VideoToolbox conversion failed with status: \(status)")
             return nil
+        }
+
+        // Apply resolution limiting to prevent memory issues
+        let maxDimension: CGFloat = 1024
+        let originalWidth = CGFloat(validCGImage.width)
+        let originalHeight = CGFloat(validCGImage.height)
+
+        if originalWidth > maxDimension || originalHeight > maxDimension {
+            let scale = min(maxDimension / originalWidth, maxDimension / originalHeight)
+            let newWidth = Int(originalWidth * scale)
+            let newHeight = Int(originalHeight * scale)
+
+            // Create scaled version using Core Graphics (safer than Core Image)
+            guard let context = CGContext(
+                data: nil,
+                width: newWidth,
+                height: newHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return UIImage(cgImage: validCGImage, scale: 1.0, orientation: orientation)
+            }
+
+            context.draw(validCGImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+
+            if let scaledImage = context.makeImage() {
+                return UIImage(cgImage: scaledImage, scale: 1.0, orientation: orientation)
+            }
         }
 
         return UIImage(cgImage: validCGImage, scale: 1.0, orientation: orientation)

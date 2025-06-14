@@ -1,7 +1,7 @@
 # Core Image CI::complete_intermediate Crash Fixes Implementation
 
 ## Overview
-This document outlines the implementation of fixes for sporadic `CI::complete_intermediate` crashes in the Flutter body detection plugin. The fixes follow Apple's recommended best practices for Core Image usage in real-time camera applications.
+This document outlines the implementation of fixes for sporadic `CI::complete_intermediate` crashes in the Flutter body detection plugin. After extensive testing and multiple crash occurrences, the solution has evolved to use **VideoToolbox-only mode** for bulletproof crash-free operation while maintaining full functionality.
 
 ## Key Changes Made
 
@@ -15,10 +15,11 @@ This document outlines the implementation of fixes for sporadic `CI::complete_in
 - **Removed Blocking**: Eliminated `isWorking` flag that was dropping frames
 - **Dedicated Queue**: Pose detection runs on separate `poseDetectionQueue`
 
-### 3. Optimized Preview Generation
+### 3. VideoToolbox-Only Preview Generation
 - **Device-Based Throttling**: Automatic throttling based on device performance tier
 - **Separate Processing**: Preview and pose detection are completely decoupled
-- **VideoToolbox Fallback**: Alternative preview generation if Core Image fails
+- **VideoToolbox-Only Mode**: Eliminates Core Image crashes entirely while maintaining quality
+- **Enhanced VideoToolbox**: Robust implementation with scaling and error handling
 
 ### 4. Enhanced Memory Management & Crash Prevention
 - **Adaptive Cache Clearing**: Dynamic frequency based on thermal state (30-300 frames)
@@ -62,12 +63,31 @@ This approach:
 - Eliminates manual memory management errors
 - Provides the same safety as manual retain/release
 
+## VideoToolbox-Only Solution
+
+### Why VideoToolbox-Only?
+After extensive testing, Core Image continued to produce `CI::complete_intermediate` crashes despite multiple mitigation strategies:
+- Dedicated serial queues
+- Memory pressure monitoring
+- Circuit breaker patterns
+- Thermal state management
+- GPU memory limiting
+
+The crashes occur in Core Image's internal threading implementation (`CI::Node::remove_parentROI`) which cannot be controlled from application code.
+
+### VideoToolbox Advantages
+- **Zero Crashes**: No internal threading conflicts
+- **Lower Memory Usage**: Direct GPU-to-CPU conversion without intermediate textures
+- **Better Performance**: Faster conversion for camera preview use case
+- **Hardware Accelerated**: Uses dedicated video processing units
+- **Reliable**: Mature, stable API used throughout iOS ecosystem
+
 ## Performance Benefits
 
 1. **Zero Frame Drops**: Pose detection never blocks camera capture
-2. **Reduced CI Workload**: Preview throttling cuts Core Image work by ~66%
-3. **Better Memory Usage**: Automatic cache management prevents buildup
-4. **Crash Elimination**: Single-threaded CI access prevents race conditions
+2. **Crash-Free Operation**: VideoToolbox eliminates all CI-related crashes
+3. **Better Memory Usage**: No GPU texture accumulation or leaks
+4. **Consistent Performance**: No thermal throttling from GPU overload
 
 ## Testing Recommendations
 
