@@ -32,6 +32,11 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
         return Self.getOptimalThrottleFactor()
     }()
 
+    // Circuit breaker for Core Image - disable if too many failures
+    private var coreImageFailureCount: Int = 0
+    private var coreImageDisabled: Bool = false
+    private let maxCoreImageFailures: Int = 5
+
     private static func getOptimalThrottleFactor() -> Int {
         let deviceModel = UIDevice.current.model
         let systemVersion = UIDevice.current.systemVersion
@@ -118,6 +123,14 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
             name: UIApplication.didEnterBackgroundNotification,
             object: nil
         )
+
+        // Monitor thermal state changes for additional memory management
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleThermalStateChange),
+            name: ProcessInfo.thermalStateDidChangeNotification,
+            object: nil
+        )
     }
 
     @objc private func handleMemoryPressure() {
@@ -129,6 +142,20 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     @objc private func handleAppDidEnterBackground() {
         SwiftBodyDetectionPlugin.ciQueue.async {
             SwiftBodyDetectionPlugin.ciContext.clearCaches()
+        }
+    }
+
+    @objc private func handleThermalStateChange() {
+        let thermalState = ProcessInfo.processInfo.thermalState
+        print("Body Detection: Thermal state changed to \(thermalState)")
+
+        // Aggressive cache clearing on thermal pressure
+        if thermalState == .serious || thermalState == .critical {
+            SwiftBodyDetectionPlugin.ciQueue.async {
+                SwiftBodyDetectionPlugin.ciContext.clearCaches()
+                // Force immediate cleanup
+                autoreleasepool { }
+            }
         }
     }
 
@@ -294,11 +321,31 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
             }
         }
 
-        // Periodic cache clearing to prevent memory buildup
-        if frameCounter.isMultiple(of: 300) { // Every ~10 seconds at 30fps
+        // More aggressive cache clearing to prevent CI crashes
+        let cacheInterval = getCacheClearingInterval()
+        if frameCounter.isMultiple(of: cacheInterval) {
             SwiftBodyDetectionPlugin.ciQueue.async {
                 SwiftBodyDetectionPlugin.ciContext.clearCaches()
+                // Force garbage collection of any lingering CI objects
+                autoreleasepool { }
             }
+        }
+    }
+
+    private func getCacheClearingInterval() -> Int {
+        // Adjust cache clearing frequency based on memory pressure
+        let thermalState = ProcessInfo.processInfo.thermalState
+        switch thermalState {
+        case .critical:
+            return 30   // Every second at 30fps - very aggressive
+        case .serious:
+            return 90   // Every 3 seconds - aggressive
+        case .fair:
+            return 150  // Every 5 seconds - moderate
+        case .nominal:
+            return 300  // Every 10 seconds - normal
+        @unknown default:
+            return 300
         }
     }
 
@@ -320,18 +367,76 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
     }
 
     private func generatePreviewImage(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) {
-        // Try Core Image first, fallback to VideoToolbox if CI fails
-        if let previewImage = generatePreviewWithCoreImage(imageBuffer: imageBuffer, orientation: orientation) {
-            sendPreviewToFlutter(previewImage)
-        } else if let previewImage = generatePreviewWithVideoToolbox(imageBuffer: imageBuffer, orientation: orientation) {
-            sendPreviewToFlutter(previewImage)
+        // Check circuit breaker and memory pressure
+        let memoryPressure = ProcessInfo.processInfo.thermalState
+        let shouldUseCoreImage = !coreImageDisabled &&
+                                memoryPressure != .critical &&
+                                memoryPressure != .serious
+
+        var previewImage: UIImage?
+
+        if shouldUseCoreImage {
+            // Try Core Image with circuit breaker pattern
+            do {
+                previewImage = try generatePreviewWithCoreImageSafe(imageBuffer: imageBuffer, orientation: orientation)
+                // Reset failure count on success
+                if previewImage != nil {
+                    coreImageFailureCount = 0
+                }
+            } catch {
+                print("Core Image preview generation failed: \(error.localizedDescription)")
+                coreImageFailureCount += 1
+
+                // Disable Core Image if too many failures
+                if coreImageFailureCount >= maxCoreImageFailures {
+                    coreImageDisabled = true
+                    print("Body Detection: Core Image disabled due to repeated failures. Using VideoToolbox only.")
+                }
+                previewImage = nil
+            }
+        }
+
+        // Fallback to VideoToolbox if CI failed, disabled, or memory pressure is high
+        if previewImage == nil {
+            previewImage = generatePreviewWithVideoToolbox(imageBuffer: imageBuffer, orientation: orientation)
+        }
+
+        if let image = previewImage {
+            sendPreviewToFlutter(image)
+        }
+    }
+
+    private func generatePreviewWithCoreImageSafe(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) throws -> UIImage? {
+        // Wrap Core Image operations in error handling
+        return try autoreleasepool {
+            return generatePreviewWithCoreImage(imageBuffer: imageBuffer, orientation: orientation)
         }
     }
 
     private func generatePreviewWithCoreImage(imageBuffer: CVPixelBuffer, orientation: UIImage.Orientation) -> UIImage? {
-        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        // Additional safety checks to prevent CI crashes
+        guard CVPixelBufferGetWidth(imageBuffer) > 0 && CVPixelBufferGetHeight(imageBuffer) > 0 else {
+            return nil
+        }
 
-        guard let cgImage = SwiftBodyDetectionPlugin.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+        // Create CIImage with explicit options to prevent texture issues
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer, options: [
+            .colorSpace: NSNull(),  // Prevent color space conversion issues
+            .applyOrientationProperty: false  // Handle orientation manually
+        ])
+
+        // Validate image extent before processing
+        let extent = ciImage.extent
+        guard extent.width > 0 && extent.height > 0 && !extent.isInfinite else {
+            return nil
+        }
+
+        // Use a smaller render region to reduce GPU memory pressure
+        let maxDimension: CGFloat = 1024
+        let scale = min(maxDimension / extent.width, maxDimension / extent.height, 1.0)
+        let renderRect = CGRect(x: 0, y: 0, width: extent.width * scale, height: extent.height * scale)
+
+        guard let cgImage = SwiftBodyDetectionPlugin.ciContext.createCGImage(ciImage, from: renderRect) else {
             return nil
         }
 

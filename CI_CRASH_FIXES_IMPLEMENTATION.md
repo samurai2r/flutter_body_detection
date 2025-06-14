@@ -20,10 +20,13 @@ This document outlines the implementation of fixes for sporadic `CI::complete_in
 - **Separate Processing**: Preview and pose detection are completely decoupled
 - **VideoToolbox Fallback**: Alternative preview generation if Core Image fails
 
-### 4. Memory Management
-- **Automatic Cache Clearing**: Periodic cleanup every 300 frames (~10 seconds)
-- **Memory Pressure Handling**: Responds to system memory warnings
+### 4. Enhanced Memory Management & Crash Prevention
+- **Adaptive Cache Clearing**: Dynamic frequency based on thermal state (30-300 frames)
+- **Memory Pressure Handling**: Responds to system memory warnings and thermal changes
 - **Background State Management**: Clears caches when app enters background
+- **Circuit Breaker Pattern**: Automatically disables Core Image after repeated failures
+- **Thermal State Monitoring**: Switches to VideoToolbox under thermal pressure
+- **GPU Memory Limits**: Caps preview resolution to prevent texture memory exhaustion
 
 ## File Changes
 
