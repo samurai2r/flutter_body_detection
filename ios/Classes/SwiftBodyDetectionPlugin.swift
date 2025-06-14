@@ -26,6 +26,67 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
 
     // Frame counter for preview throttling (optional optimization)
     private var frameCounter: Int = 0
+
+    // Dynamic throttling based on device capabilities
+    private lazy var previewThrottleFactor: Int = {
+        return Self.getOptimalThrottleFactor()
+    }()
+
+    private static func getOptimalThrottleFactor() -> Int {
+        let deviceModel = UIDevice.current.model
+        let systemVersion = UIDevice.current.systemVersion
+
+        // Get device performance tier
+        let performanceTier = getDevicePerformanceTier()
+
+        switch performanceTier {
+        case .high:
+            return 2  // 15fps preview - smooth experience on powerful devices
+        case .medium:
+            return 3  // 10fps preview - balanced performance
+        case .low:
+            return 4  // 7.5fps preview - conservative for older devices
+        }
+    }
+
+    private enum DevicePerformanceTier {
+        case high, medium, low
+    }
+
+    private static func getDevicePerformanceTier() -> DevicePerformanceTier {
+        // Use processor info to determine device capability
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let modelCode = withUnsafePointer(to: &systemInfo.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
+                ptr in String.init(validatingUTF8: ptr)
+            }
+        }
+
+        guard let model = modelCode else { return .medium }
+
+        // High-performance devices (A15 Bionic and newer)
+        if model.contains("iPhone14,") ||  // iPhone 13 series
+           model.contains("iPhone15,") ||  // iPhone 14 series
+           model.contains("iPhone16,") ||  // iPhone 15 series
+           model.contains("iPhone17,") ||  // iPhone 16 series
+           model.contains("iPad14,") ||    // iPad Pro M2
+           model.contains("iPad16,") {     // iPad Pro M4
+            return .high
+        }
+
+        // Medium-performance devices (A12-A14 Bionic)
+        if model.contains("iPhone11,") ||  // iPhone XS/XR
+           model.contains("iPhone12,") ||  // iPhone 11 series
+           model.contains("iPhone13,") ||  // iPhone 12 series
+           model.contains("iPad11,") ||    // iPad Pro 2018-2020
+           model.contains("iPad13,") {     // iPad Pro M1
+            return .medium
+        }
+
+        // Low-performance devices (A11 and older, or unknown)
+        return .low
+    }
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = SwiftBodyDetectionPlugin()
@@ -38,6 +99,9 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
 
         // Register for memory pressure and background notifications
         instance.setupNotificationObservers()
+
+        // Log the selected throttling factor for debugging
+        print("Body Detection: Using preview throttle factor \(instance.previewThrottleFactor) for device performance optimization")
     }
 
     private func setupNotificationObservers() {
@@ -220,8 +284,8 @@ public class SwiftBodyDetectionPlugin: NSObject, FlutterPlugin {
         }
 
         // --- Preview Generation (throttled and on dedicated CI queue) ---
-        // Generate preview every 3rd frame to reduce CI workload while maintaining smooth preview
-        if self.eventSink != nil && frameCounter.isMultiple(of: 3) {
+        // Generate preview based on device capabilities for optimal performance
+        if self.eventSink != nil && frameCounter.isMultiple(of: previewThrottleFactor) {
             // Capture the pixel buffer in the closure to ensure it stays alive
             SwiftBodyDetectionPlugin.ciQueue.async { [weak self, imageBuffer] in
                 autoreleasepool {

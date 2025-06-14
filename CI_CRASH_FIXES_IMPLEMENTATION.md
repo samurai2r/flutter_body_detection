@@ -16,7 +16,7 @@ This document outlines the implementation of fixes for sporadic `CI::complete_in
 - **Dedicated Queue**: Pose detection runs on separate `poseDetectionQueue`
 
 ### 3. Optimized Preview Generation
-- **Frame Throttling**: Preview generated every 3rd frame (configurable)
+- **Device-Based Throttling**: Automatic throttling based on device performance tier
 - **Separate Processing**: Preview and pose detection are completely decoupled
 - **VideoToolbox Fallback**: Alternative preview generation if Core Image fails
 
@@ -91,12 +91,20 @@ This approach:
 
 ## Configuration Options
 
-### Frame Throttling
+### Device-Based Throttling (Automatic)
+The system automatically selects optimal throttling based on device performance:
+
+| Device Tier | Throttle Factor | Preview FPS | Examples |
+|-------------|-----------------|-------------|----------|
+| **High Performance** | 2 | 15fps | iPhone 13+, iPad Pro M2+ |
+| **Medium Performance** | 3 | 10fps | iPhone XS-12, iPad Pro 2018-2020 |
+| **Low Performance** | 4 | 7.5fps | iPhone X and older |
+
+### Manual Override (Optional)
 ```swift
-// In handleCameraFrame, change the throttling factor:
-if self.eventSink != nil && frameCounter.isMultiple(of: 3) {
-    // Change '3' to adjust preview frequency
-    // 1 = every frame, 2 = every other frame, etc.
+// To override automatic detection, modify getOptimalThrottleFactor():
+private static func getOptimalThrottleFactor() -> Int {
+    return 3  // Force specific throttling factor
 }
 ```
 
