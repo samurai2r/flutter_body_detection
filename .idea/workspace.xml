@@ -6,8 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="1fe668cf-82fa-4f90-8c8c-b243011abfe9" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CI_CRASH_FIXES_IMPLEMENTATION.md" beforeDir="false" afterPath="$PROJECT_DIR$/CI_CRASH_FIXES_IMPLEMENTATION.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ios/Classes/SwiftBodyDetectionPlugin.swift" beforeDir="false" afterPath="$PROJECT_DIR$/ios/Classes/SwiftBodyDetectionPlugin.swift" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
